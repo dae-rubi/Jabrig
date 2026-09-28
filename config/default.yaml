@@ -1,0 +1,35 @@
+app:
+  name: JABRIG AI
+  env: ${APP_ENV:development}
+  debug: false
+
+logging:
+  level: ${LOG_LEVEL:INFO}
+
+providers:
+  openai:
+    enabled: true
+    base_url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}
+  9router:
+    enabled: true
+    base_url: ${NINEROUTER_BASE_URL:http://localhost:20128/v1}
+    api_key: ${NINEROUTER_API_KEY}
+    default_model: ${NINEROUTER_DEFAULT_MODEL}
+  openrouter:
+    enabled: true
+    base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+
+health:
+  checks:
+    - jabrig_core
+    - postgres
+    - redis
+    - 9router
+    - openai
+    - openrouter
+    - jev
+    - hermes
+    - brahma
+    - chrome_bridge
