@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from jabrig_ai.api.app import app
 from jabrig_ai.security.audit import AuditLogger
 from jabrig_ai.security.redaction import redact_secret
+from jabrig_ai.storage.database import DatabaseAdapter
 
 
 def test_task_endpoint_requires_auth_header():
@@ -12,7 +13,10 @@ def test_task_endpoint_requires_auth_header():
     assert response.status_code == 401
 
 
-def test_task_endpoint_accepts_valid_key_and_returns_task_id():
+@pytest.mark.asyncio
+async def test_task_endpoint_accepts_valid_key_and_returns_task_id(monkeypatch):
+    monkeypatch.setenv("JABRIG_DB_PATH", "jabrig.sqlite3")
+
     client = TestClient(app)
     response = client.post(
         "/v1/tasks",
@@ -20,7 +24,12 @@ def test_task_endpoint_accepts_valid_key_and_returns_task_id():
         headers={"x-api-key": "test-key"},
     )
     assert response.status_code == 200
-    assert "task_id" in response.json()
+    payload = response.json()
+    assert "task_id" in payload
+
+    db = DatabaseAdapter("jabrig.sqlite3")
+    rows = await db.fetch("tasks", filters={"id": payload["task_id"]})
+    assert rows and rows[0]["user_input"] == "hello"
 
 
 def test_secret_redaction_masks_sensitive_values():

@@ -13,7 +13,7 @@ class DatabaseAdapter:
     def __init__(self, db_path: str | None = None) -> None:
         self.db_path = db_path or os.environ.get("JABRIG_DB_PATH") or ":memory:"
         self._ensure_parent_dir()
-        self._conn = sqlite3.connect(self.db_path)
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._initialize()
 
@@ -144,13 +144,27 @@ class DatabaseAdapter:
             )
             conn.commit()
 
-    def _serialize_value(self, value: Any) -> str:
-        return json.dumps(value, default=str)
+    def _serialize_value(self, value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, (dict, list, tuple, set)):
+            return json.dumps(value, default=str)
+        return str(value)
+
+    def _deserialize_value(self, value: Any) -> Any:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("{") or stripped.startswith("["):
+                try:
+                    return json.loads(stripped)
+                except json.JSONDecodeError:
+                    return value
+        return value
 
     async def insert(self, table: str, record: dict[str, Any]) -> dict[str, Any]:
         columns = [key for key in record.keys()]
         placeholders = ", ".join(["?"] * len(columns))
-        values = [record[column] for column in columns]
+        values = [self._serialize_value(record[column]) for column in columns]
 
         with self._connect() as conn:
             self._ensure_columns(conn, table, columns)
@@ -187,7 +201,13 @@ class DatabaseAdapter:
 
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            item = dict(row)
+            for key, value in item.items():
+                item[key] = self._deserialize_value(value)
+            result.append(item)
+        return result
 
     async def update(self, table: str, match: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
         if not match:

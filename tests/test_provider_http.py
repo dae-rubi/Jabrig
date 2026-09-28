@@ -2,7 +2,9 @@ import pytest
 
 from jabrig_ai.providers.gateway import ModelGateway
 from jabrig_ai.core.domain import ModelRequest
+from jabrig_ai.providers.ninerouter import NineRouterProvider
 from jabrig_ai.providers.openai import OpenAIProvider
+from jabrig_ai.providers.openrouter import OpenRouterProvider
 
 
 @pytest.mark.asyncio
@@ -63,3 +65,44 @@ async def test_openai_provider_uses_http_api_when_api_key_is_present(monkeypatch
     assert response.provider == "openai"
     assert response.model == "gpt-4o-mini"
     assert response.content == "hello from openai"
+
+
+@pytest.mark.asyncio
+async def test_ninerouter_and_openrouter_use_http_api_when_api_keys_are_present(monkeypatch):
+    monkeypatch.setenv("NINEROUTER_API_KEY", "nr-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": "hello from router"}}],
+                "usage": {"total_tokens": 11},
+            }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.headers = kwargs.get("headers", {})
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            assert url.endswith("/chat/completions")
+            assert headers["Authorization"] in {"Bearer nr-key", "Bearer or-key"}
+            return FakeResponse()
+
+    monkeypatch.setattr("httpx.AsyncClient", FakeClient)
+
+    nr = await NineRouterProvider().generate(ModelRequest(messages=[{"role": "user", "content": "hello"}], model="demo-model"))
+    orr = await OpenRouterProvider().generate(ModelRequest(messages=[{"role": "user", "content": "hello"}], model="demo-model"))
+
+    assert nr.provider == "9router"
+    assert nr.model == "demo-model"
+    assert orr.provider == "openrouter"
+    assert orr.model == "demo-model"

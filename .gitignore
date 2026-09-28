@@ -4,9 +4,10 @@ __pycache__/
 *.sqlite3
 *.egg-info/
 .env
+.env.*
+!.env.example
 .venv/
 venv/
-.env.*
 .DS_Store
 coverage.xml
 htmlcov/

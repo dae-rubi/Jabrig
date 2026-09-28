@@ -20,3 +20,12 @@ class Scheduler:
                 result = await result
             results.append(result)
         return results
+
+    async def run_one(self, name: str) -> Any:
+        for task_name, task in self.tasks:
+            if task_name == name:
+                result = task()
+                if hasattr(result, "__await__"):
+                    return await result
+                return result
+        raise KeyError(f"Scheduled task not found: {name}")

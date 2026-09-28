@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+
+import httpx
+
 from jabrig_ai.core.domain import ModelRequest, ModelResponse
 
 
@@ -11,12 +15,41 @@ class OpenRouterProvider:
     supports_reasoning = True
     context_window = 128000
     max_output_tokens = 4096
-    default_model = "openrouter/default"
+    default_model = os.getenv("OPENROUTER_DEFAULT_MODEL", "openai/gpt-oss-20b")
 
     async def generate(self, request: ModelRequest) -> ModelResponse:
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            return ModelResponse(
+                content="",
+                provider=self.name,
+                model=request.model or self.default_model,
+                metadata={"placeholder": True, "request": request.model_dump(exclude_none=True)},
+            )
+
+        model = request.model or self.default_model
+        payload = {
+            "model": model,
+            "messages": request.messages,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+        }
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            )
+            response.raise_for_status()
+            body = response.json()
+
+        message = body.get("choices", [{}])[0].get("message", {}).get("content", "")
+        usage = body.get("usage", {})
         return ModelResponse(
-            content="",
+            content=message,
             provider=self.name,
-            model=request.model or self.default_model,
-            metadata={"placeholder": True, "request": request.model_dump(exclude_none=True)},
+            model=model,
+            usage=usage,
+            metadata={"api": "openrouter", "request": request.model_dump(exclude_none=True)},
         )
