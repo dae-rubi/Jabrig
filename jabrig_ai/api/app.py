@@ -41,13 +41,71 @@ async def create_task(payload: dict[str, Any], x_api_key: str | None = Header(de
         "tasks",
         {
             "id": task_id,
-            "status": "accepted",
+            "status": payload.get("status", "accepted"),
             "user_input": user_input,
             "metadata": {"source": "api"},
-            "name": "api-task",
+            "name": payload.get("name", "api-task"),
         },
     )
     return {"task_id": task_id, "status": "accepted"}
+
+
+@app.get("/v1/tasks")
+async def list_tasks(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> dict[str, Any]:
+    if x_api_key not in VALID_API_KEYS:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = get_db()
+    rows = await db.fetch("tasks", limit=100)
+    return {"items": rows}
+
+
+@app.get("/v1/tasks/{task_id}")
+async def get_task(task_id: str, x_api_key: str | None = Header(default=None, alias="x-api-key")) -> dict[str, Any]:
+    if x_api_key not in VALID_API_KEYS:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = get_db()
+    rows = await db.fetch("tasks", filters={"id": task_id})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return rows[0]
+
+
+@app.patch("/v1/tasks/{task_id}")
+async def update_task(task_id: str, payload: dict[str, Any], x_api_key: str | None = Header(default=None, alias="x-api-key")) -> dict[str, Any]:
+    if x_api_key not in VALID_API_KEYS:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = get_db()
+    rows = await db.fetch("tasks", filters={"id": task_id})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    updates = {k: v for k, v in payload.items() if k in {"status", "user_input", "name", "metadata"}}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid updates supplied")
+
+    await db.update("tasks", {"id": task_id}, updates)
+    refreshed = await db.fetch("tasks", filters={"id": task_id})
+    return refreshed[0]
+
+
+@app.delete("/v1/tasks/{task_id}")
+async def delete_task(task_id: str, x_api_key: str | None = Header(default=None, alias="x-api-key")) -> dict[str, Any]:
+    if x_api_key not in VALID_API_KEYS:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = get_db()
+    rows = await db.fetch("tasks", filters={"id": task_id})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    with db._connect() as conn:
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        conn.commit()
+
+    return {"deleted": True, "task_id": task_id}
 
 
 @app.get("/health")
